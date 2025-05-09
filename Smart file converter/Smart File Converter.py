@@ -1,0 +1,365 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from PIL import Image
+import os
+from mutagen.id3 import ID3
+from pydub import AudioSegment
+import io
+import threading
+import json
+
+class ModernFileConverter:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Smart File Converter")
+        self.root.geometry("900x700")
+        
+        # Load saved settings
+        self.settings = self.load_settings()
+        
+        # Theme colors
+        self.colors = {
+            'bg': '#17212b',
+            'secondary': '#242f3d',
+            'accent': '#3e546a',
+            'text': '#ffffff',
+            'button': '#5b6b7c'
+        }
+        
+        # Configure style
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        self.configure_styles()
+        
+        self.root.configure(bg=self.colors['bg'])
+        
+        # Variables
+        self.input_file = ""
+        self.output_dir = self.settings.get('last_output_dir', "")
+        self.output_format = tk.StringVar()
+        self.status_text = tk.StringVar(value="Ready to convert")
+        self.advanced_mode = tk.BooleanVar(value=False)
+        self.upscale_enabled = tk.BooleanVar(value=False)
+        self.upscale_factor = tk.StringVar(value="2")
+        self.audio_quality = tk.StringVar(value="320k")
+        
+        self.create_widgets()
+        
+    def configure_styles(self):
+        self.style.configure(
+            'Custom.TFrame',
+            background=self.colors['bg']
+        )
+        self.style.configure(
+            'Custom.TButton',
+            background=self.colors['button'],
+            foreground=self.colors['text'],
+            padding=10
+        )
+        self.style.configure(
+            'Custom.TLabel',
+            background=self.colors['bg'],
+            foreground=self.colors['text']
+        )
+        self.style.configure(
+            'Header.TLabel',
+            background=self.colors['bg'],
+            foreground=self.colors['text'],
+            font=('Helvetica', 24, 'bold')
+        )
+        self.style.configure(
+            'Advanced.TFrame',
+            background=self.colors['secondary'],
+            relief='raised'
+        )
+        
+    def create_widgets(self):
+        # Main container
+        self.main_frame = ttk.Frame(self.root, style='Custom.TFrame', padding="20")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        title_label = ttk.Label(
+            self.main_frame, 
+            text="Smart File Converter",
+            style='Header.TLabel'
+        )
+        title_label.pack(pady=20)
+        
+        # Input file section
+        file_frame = ttk.Frame(self.main_frame, style='Custom.TFrame')
+        file_frame.pack(fill=tk.X, pady=10)
+        
+        self.file_button = ttk.Button(
+            file_frame,
+            text="Select Input File",
+            command=self.select_file,
+            style='Custom.TButton'
+        )
+        self.file_button.pack(side=tk.LEFT, padx=5)
+        
+        self.file_label = ttk.Label(
+            file_frame,
+            text="No file selected",
+            style='Custom.TLabel'
+        )
+        self.file_label.pack(side=tk.LEFT, padx=5)
+        
+        # Output directory section
+        output_frame = ttk.Frame(self.main_frame, style='Custom.TFrame')
+        output_frame.pack(fill=tk.X, pady=10)
+        
+        self.output_button = ttk.Button(
+            output_frame,
+            text="Select Output Directory",
+            command=self.select_output_dir,
+            style='Custom.TButton'
+        )
+        self.output_button.pack(side=tk.LEFT, padx=5)
+        
+        self.output_label = ttk.Label(
+            output_frame,
+            text=self.output_dir or "Default output directory",
+            style='Custom.TLabel'
+        )
+        self.output_label.pack(side=tk.LEFT, padx=5)
+        
+        # Format selection
+        format_frame = ttk.Frame(self.main_frame, style='Custom.TFrame')
+        format_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Label(
+            format_frame,
+            text="Output Format:",
+            style='Custom.TLabel'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        formats = ['.mp3', '.wav', '.jpg', '.png', '.gif', '.webp']
+        self.format_combo = ttk.Combobox(
+            format_frame,
+            textvariable=self.output_format,
+            values=formats,
+            state='readonly',
+            width=15
+        )
+        self.format_combo.pack(side=tk.LEFT, padx=5)
+        
+        # Advanced Mode Toggle
+        advanced_frame = ttk.Frame(self.main_frame, style='Custom.TFrame')
+        advanced_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Checkbutton(
+            advanced_frame,
+            text="Advanced Mode",
+            variable=self.advanced_mode,
+            command=self.toggle_advanced_options,
+            style='Custom.TCheckbutton'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Advanced Options Frame
+        self.advanced_options_frame = ttk.Frame(self.main_frame, style='Advanced.TFrame')
+        
+        # Upscale Options (for images)
+        upscale_frame = ttk.Frame(self.advanced_options_frame, style='Custom.TFrame')
+        upscale_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        ttk.Checkbutton(
+            upscale_frame,
+            text="Enable Upscaling",
+            variable=self.upscale_enabled,
+            style='Custom.TCheckbutton'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(
+            upscale_frame,
+            text="Upscale Factor:",
+            style='Custom.TLabel'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Entry(
+            upscale_frame,
+            textvariable=self.upscale_factor,
+            width=5
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Audio Quality Options
+        audio_frame = ttk.Frame(self.advanced_options_frame, style='Custom.TFrame')
+        audio_frame.pack(fill=tk.X, pady=5, padx=10)
+        
+        ttk.Label(
+            audio_frame,
+            text="Audio Quality:",
+            style='Custom.TLabel'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        quality_options = ['128k', '192k', '256k', '320k']
+        ttk.Combobox(
+            audio_frame,
+            textvariable=self.audio_quality,
+            values=quality_options,
+            state='readonly',
+            width=10
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # Convert button
+        self.convert_button = ttk.Button(
+            self.main_frame,
+            text="Start Conversion",
+            command=self.start_conversion,
+            style='Custom.TButton'
+        )
+        self.convert_button.pack(pady=20)
+        
+        # Progress bar
+        self.progress = ttk.Progressbar(
+            self.main_frame,
+            length=400,
+            mode='determinate'
+        )
+        self.progress.pack(pady=10)
+        
+        # Status
+        self.status_label = ttk.Label(
+            self.main_frame,
+            textvariable=self.status_text,
+            style='Custom.TLabel'
+        )
+        self.status_label.pack(pady=5)
+    
+    def load_settings(self):
+        try:
+            with open('converter_settings.json', 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    
+    def save_settings(self):
+        settings = {
+            'last_output_dir': self.output_dir
+        }
+        with open('converter_settings.json', 'w') as f:
+            json.dump(settings, f)
+    
+    def select_output_dir(self):
+        dir_path = filedialog.askdirectory()
+        if dir_path:
+            self.output_dir = dir_path
+            self.output_label.config(text=dir_path)
+            self.save_settings()
+    
+    def select_file(self):
+        self.input_file = filedialog.askopenfilename(
+            filetypes=[
+                ("All Supported Files", "*.mp3;*.jpg;*.png;*.gif;*.wav;*.webp"),
+                ("Audio Files", "*.mp3;*.wav"),
+                ("Images", "*.jpg;*.png;*.gif;*.webp")
+            ]
+        )
+        if self.input_file:
+            self.file_label.config(text=os.path.basename(self.input_file))
+            self.status_text.set("File selected")
+    
+    def toggle_advanced_options(self):
+        if self.advanced_mode.get():
+            self.advanced_options_frame.pack(fill=tk.X, pady=10)
+        else:
+            self.advanced_options_frame.pack_forget()
+    
+    def extract_cover(self, audio_file):
+        try:
+            audio = ID3(audio_file)
+            for tag in audio.values():
+                if tag.FrameID in ['APIC', 'PIC']:
+                    return Image.open(io.BytesIO(tag.data))
+            return None
+        except Exception:
+            return None
+    
+    def start_conversion(self):
+        if not self.input_file or not self.output_format.get():
+            messagebox.showwarning("Error", "Please select input file and output format")
+            return
+        
+        self.convert_button.configure(state='disabled')
+        self.file_button.configure(state='disabled')
+        self.format_combo.configure(state='disabled')
+        
+        thread = threading.Thread(target=self.convert_file)
+        thread.daemon = True
+        thread.start()
+    
+    def convert_file(self):
+        try:
+            input_ext = os.path.splitext(self.input_file)[1].lower()
+            output_ext = self.output_format.get()
+            
+            filename = os.path.basename(self.input_file)
+            base_name = os.path.splitext(filename)[0]
+            output_file = os.path.join(
+                self.output_dir if self.output_dir else os.path.dirname(self.input_file),
+                f"{base_name}_converted{output_ext}"
+            )
+            
+            self.progress['value'] = 0
+            self.status_text.set("Converting...")
+            
+            # Handle MP3 conversions
+            if input_ext == '.mp3':
+                self.progress['value'] = 20
+                if output_ext == '.wav':
+                    audio = AudioSegment.from_mp3(self.input_file)
+                    audio.export(output_file, format='wav')
+                elif output_ext == '.mp3':
+                    audio = AudioSegment.from_mp3(self.input_file)
+                    audio.export(output_file, format='mp3', bitrate=self.audio_quality.get())
+                elif output_ext in ['.jpg', '.png', '.webp']:
+                    cover = self.extract_cover(self.input_file)
+                    if cover:
+                        if self.advanced_mode.get() and self.upscale_enabled.get():
+                            factor = float(self.upscale_factor.get())
+                            width, height = cover.size
+                            cover = cover.resize((int(width * factor), int(height * factor)), Image.LANCZOS)
+                        cover.save(output_file, quality=95)
+            
+            # Handle WAV conversions
+            elif input_ext == '.wav':
+                self.progress['value'] = 20
+                if output_ext == '.mp3':
+                    audio = AudioSegment.from_wav(self.input_file)
+                    audio.export(output_file, format='mp3', bitrate=self.audio_quality.get())
+                elif output_ext == '.wav':
+                    audio = AudioSegment.from_wav(self.input_file)
+                    audio.export(output_file, format='wav')
+            
+            # Handle image conversions
+            elif input_ext in ['.jpg', '.png', '.webp']:
+                self.progress['value'] = 30
+                img = Image.open(self.input_file)
+                
+                if self.advanced_mode.get() and self.upscale_enabled.get():
+                    factor = float(self.upscale_factor.get())
+                    width, height = img.size
+                    img = img.resize((int(width * factor), int(height * factor)), Image.LANCZOS)
+                
+                if output_ext in ['.jpg', '.png', '.webp']:
+                    img.save(output_file, quality=95)
+                elif output_ext == '.gif':
+                    img.save(output_file, save_all=True, duration=500, loop=0)
+            
+            self.progress['value'] = 100
+            self.status_text.set("Conversion completed successfully")
+            messagebox.showinfo("Success", "File converted successfully!")
+            
+        except Exception as e:
+            self.status_text.set("Conversion failed")
+            messagebox.showerror("Error", f"Conversion failed: {str(e)}")
+        
+        finally:
+            self.convert_button.configure(state='normal')
+            self.file_button.configure(state='normal')
+            self.format_combo.configure(state='readonly')
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ModernFileConverter(root)
+    root.mainloop()
